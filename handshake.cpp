@@ -6,32 +6,34 @@
 
 using namespace std;
 
-bool syn = true, ack = false;
-int count;
-condition_variable cv;
-mutex m;
+struct context {
+	int count = 0;
+	bool syn = true, ack = false;
+	condition_variable cv;
+	mutex m;
+};
 
-void query() {
-	for (int i = 0; i < count; i++) { 
-		unique_lock lk(m);
-		cv.wait(lk, [] {return syn; });
+void query(context *ctx) { 
+	for (int i = 0; i < ctx->count; i++) { 
+		unique_lock lk(ctx->m);
+		ctx->cv.wait(lk, [=] {return ctx->syn; });
 		printf("[%d] SYN ...", i);
-		ack = true;
-		syn = false;
+		ctx->ack = true;
+		ctx->syn = false;
 		lk.unlock();
-		cv.notify_one();
+		ctx->cv.notify_one();
 	}
 }
 
-void response() {
-	for (int i = 0; i < count; i++) {
-		unique_lock lk(m);
-		cv.wait(lk, [] {return ack; }); 
+void response(context *ctx) { 
+	for (int i = 0; i < ctx->count; i++) {
+		unique_lock lk(ctx->m);
+		ctx->cv.wait(lk, [=] {return ctx->ack; }); 
 		printf(" ACK\n");
-		ack = false;
-		syn = true;
+		ctx->ack = false;
+		ctx->syn = true;
 		lk.unlock();
-		cv.notify_one();
+		ctx->cv.notify_one();
 	}
 }
 
@@ -40,12 +42,11 @@ int main(int argc, char** argv) {
 		printf("Usage: ./handshake <count>\n");
 		exit(1);
 	}
-
-	count = atoi(argv[1]); 
-
-	thread tsyn(query);
-	cv.notify_one();
-	thread tack(response);
+	context ctx;
+	ctx.count = atoi(argv[1]); 
+	thread tsyn(query, &ctx);
+	ctx.cv.notify_one();
+	thread tack(response, &ctx);
 	tsyn.join();
 	tack.join();
 	return 0;
